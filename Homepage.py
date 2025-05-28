@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objs as go
+import plotly.express as px # Import Plotly Express
 
 # === 頁面基礎設定 (Must be the first Streamlit command) ===
 st.set_page_config(
@@ -191,7 +192,7 @@ if selected_metrics:
             res = df_filtered['resistance'].iloc[i]
             temp = df_filtered['temperature'].iloc[i]
             
-            hover_texts_metric.append(
+            current_hover_text = (
                 f"Time: {t.strftime('%Y-%m-%d %H:%M:%S')}<br>"
                 f"<b>{metric_name.capitalize()} (scaled): {current_metric_scaled_val:{scaled_value_format}}</b><br>"
                 f"<hr>"
@@ -200,6 +201,12 @@ if selected_metrics:
                 f"Resistance (raw): {res:.4f} Ω<br>"
                 f"Temperature (raw): {temp:.2f} °C"
             )
+            # Add anomaly score if it exists and is not NaN
+            if 'res_spike_anomaly_score' in df_filtered.columns:
+                score = df_filtered['res_spike_anomaly_score'].iloc[i]
+                if pd.notna(score):
+                    current_hover_text += f"<br>Anomaly Score: {score:.4f}"
+            hover_texts_metric.append(current_hover_text)
         
         fig_scaled.add_trace(go.Scatter(
             x=df_filtered['record Time'],
@@ -293,7 +300,7 @@ if raw_option != "none": # Check if a raw metric is selected
         
         raw_value_format = ".4f" if raw_option == 'resistance' else ".2f" # Formatting for the primary raw value
         
-        raw_hover_texts.append(
+        current_hover_text = (
             f"Time: {t.strftime('%Y-%m-%d %H:%M:%S')}<br>"
             f"<b>{raw_option.capitalize()}: {raw_val:{raw_value_format}}</b><br>" # Prominent display of selected raw metric
             f"<hr>"
@@ -302,6 +309,12 @@ if raw_option != "none": # Check if a raw metric is selected
             f"Resistance: {res:.4f} Ω<br>"
             f"Temperature: {temp:.2f} °C"
         )
+        # Add anomaly score if it exists and is not NaN
+        if 'res_spike_anomaly_score' in df_filtered.columns:
+            score = df_filtered['res_spike_anomaly_score'].iloc[i]
+            if pd.notna(score):
+                current_hover_text += f"<br>Anomaly Score: {score:.4f}"
+        raw_hover_texts.append(current_hover_text)
 
     fig_raw = go.Figure() # Create figure for raw data plot
     # Add main trace for the raw metric
@@ -388,12 +401,93 @@ if show_anomaly and anomaly_df is not None and 'res_spike_anomaly' in df.columns
     st.markdown("---") # Visual separator
     # Calculate overall anomaly stats again here or use stored 'percent_all' if sure about its scope and state
     # For clarity, recalculating or ensuring total_anomalies_all and total_all are correctly scoped
-    if 'total_anomalies_all' not in locals() or 'total_all' not in locals(): # Recalculate if not available (e.g. if anomaly processing logic changes)
-        total_all_calc = len(df)
-        total_anomalies_all_calc = df['res_spike_anomaly'].sum()
-    else: # Use pre-calculated values if available
-        total_all_calc = total_all
-        total_anomalies_all_calc = total_anomalies_all
+    # These variables are used for the st.info message below
+    if 'total_anomalies_all' not in locals() or 'total_all' not in locals() or \
+       not ('res_spike_anomaly' in df.columns and hasattr(df, 'res_spike_anomaly')): # Ensure df has the column
+        # Fallback or recalculation if variables from anomaly processing block aren't set or column is missing
+        if 'res_spike_anomaly' in df.columns:
+            total_all_for_info = len(df)
+            total_anomalies_for_info = df['res_spike_anomaly'].sum()
+        else:
+            total_all_for_info = len(df) # Total points even if no anomaly info
+            total_anomalies_for_info = 0 # No anomalies if column is missing
+    else: # Use pre-calculated values if available from the anomaly processing block
+        total_all_for_info = total_all
+        total_anomalies_for_info = total_anomalies_all
     
-    percent_all_calc = (total_anomalies_all_calc / total_all_calc) * 100 if total_all_calc > 0 else 0
-    st.info(f"📊 異常點數量（全部）：{int(total_anomalies_all_calc)} / {total_all_calc} 筆資料（{percent_all_calc:.2f}%）")
+    percent_all_for_info = (total_anomalies_for_info / total_all_for_info) * 100 if total_all_for_info > 0 else 0
+    st.info(f"📊 異常點數量（全部 - 電阻偵測）：{int(total_anomalies_for_info)} / {total_all_for_info} 筆資料（{percent_all_for_info:.2f}%）")
+
+    # --- Stacked Horizontal Bar Chart for Resistance Anomaly Statistics (Overall Data) ---
+    st.markdown("---")
+    st.subheader("📊 電阻異常偵測比例 (整體資料)") # Updated subheader
+
+    # Data for the stacked bar chart
+    anomaly_count_chart = df['res_spike_anomaly'].sum()
+    total_points_chart = len(df)
+    normal_count_chart = total_points_chart - anomaly_count_chart
+
+    normal_percentage = (normal_count_chart / total_points_chart) * 100 if total_points_chart > 0 else 0
+    anomaly_percentage = (anomaly_count_chart / total_points_chart) * 100 if total_points_chart > 0 else 0
+
+    chart_data_stacked = [
+        {
+            'Category': '電阻異常偵測', 
+            'Segment': 'Normal', 
+            'Count': normal_count_chart, 
+            'Percentage': normal_percentage, 
+            'TextOnBar': f"<b>{normal_percentage:.1f}%</b>"
+        },
+        {
+            'Category': '電阻異常偵測', 
+            'Segment': 'Anomaly', 
+            'Count': anomaly_count_chart, 
+            'Percentage': anomaly_percentage, 
+            'TextOnBar': f"<b>{anomaly_percentage:.1f}%</b>"
+        }
+    ]
+    df_chart_stacked = pd.DataFrame(chart_data_stacked)
+
+    # Create the stacked horizontal bar chart using Plotly Express
+    fig_stats = px.bar(
+        df_chart_stacked,
+        x='Count',
+        y='Category',
+        color='Segment',
+        orientation='h',
+        text='TextOnBar', # Use the new field for on-bar text
+        custom_data=['Segment', 'Count', 'Percentage'], # Data for hovertemplate
+        color_discrete_map={
+            'Normal': 'rgba(0, 128, 0, 0.7)',  # Green
+            'Anomaly': 'rgba(255, 0, 0, 0.7)' # Red
+        }
+    )
+
+    # Update layout for the stacked bar chart
+    fig_stats.update_layout(
+        title_text="電阻異常偵測：整體資料統計 (Normal vs. Anomaly Proportions)",
+        xaxis_title="總數量 (Total Count)",
+        yaxis_title=None, # Hide y-axis title
+        height=200, # Adjusted height for a single bar
+        showlegend=True,
+        legend_title_text='類型 (Segment Type)',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig_stats.update_yaxes(visible=False, showticklabels=False) # Hide y-axis line and labels
+    fig_stats.update_xaxes(range=[0, total_points_chart]) # Ensure x-axis covers the total range
+    
+    # Update trace configuration for text display and hover
+    fig_stats.update_traces(
+        textposition='inside', 
+        insidetextanchor='middle', 
+        textfont_size=15, # Updated font size
+        textfont_color="black", # Added font color
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br><br>" + # Segment Name
+            "Count: %{customdata[1]}<br>" +      # Count
+            "Percentage: %{customdata[2]:.1f}%" + # Percentage
+            "<extra></extra>" # Hide trace info
+        )
+    )
+
+    st.plotly_chart(fig_stats, use_container_width=True) # Display the chart
