@@ -23,46 +23,24 @@ uploaded_file = st.sidebar.file_uploader(
 st.sidebar.markdown("---") # 視覺分隔線 for separation before other sidebar items if any start here
 
 # --- 資料載入與初始化 ---
+df = pd.DataFrame() # Initialize df as an empty DataFrame by default
+
 if uploaded_file is not None:
-    # When a file is uploaded, DataLoader will receive the UploadedFile object.
-    # The DataLoader's get_data method will need to handle this.
-    # Pandas pd.read_csv can directly read from an UploadedFile object.
-    data_loader = DataLoader(source=uploaded_file) # Pass the uploaded_file object as 'source'
-    df = data_loader.get_data()
-    if df.empty:
-        st.error("資料載入失敗或檔案為空。請檢查檔案內容。")
-        st.stop() # Stop execution if data loading fails or file is empty
+    st.success("已成功上傳檔案。正在載入資料...") # Feedback for user
+    data_loader = DataLoader(source=uploaded_file)
+    df_temp = data_loader.get_data() # Load into a temporary df
+    if df_temp.empty:
+        st.error("上傳的檔案為空或無法處理。請檢查檔案內容或嘗試其他檔案。")
+        # df remains empty, page will show "Please upload" message
+    else:
+        df = df_temp # Assign to main df only if successfully loaded
+        st.success("資料載入成功！")
 else:
-    # Display a placeholder or instruction if no file is uploaded yet
-    # For example, load the default file or show a message
-    st.info("請在左方側邊欄上傳 CSV 檔案以開始分析。若無上傳，將嘗試載入預設資料。")
-    # Attempt to load a default file if no file is uploaded.
-    # This provides backward compatibility or a default view.
-    default_file_path = "results/s1_anomaly_results.csv"
-    try:
-        data_loader = DataLoader(source=default_file_path)
-        df = data_loader.get_data()
-        if df.empty:
-            st.warning(f"預設資料檔案 {default_file_path} 載入失敗或為空。")
-            # Optionally, you can display a more prominent error and stop
-            # st.error(f"預設資料檔案 {default_file_path} 載入失敗或為空。請上傳檔案。")
-            # st.stop()
-    except Exception as e: # Catch any error during default load
-         st.warning(f"載入預設資料 {default_file_path} 時發生錯誤: {e}。請上傳檔案。")
-         # As a fallback, create an empty DataFrame to prevent downstream errors
-         # or guide the user to upload a file.
-         df = pd.DataFrame() # Critical to have df defined
-         # If df must not be empty, then st.stop() after error.
-         # For now, allowing the app to proceed with empty df and show "no data" messages.
+    # No file uploaded, df remains empty.
+    # The main page will show a message to upload a file.
+    pass # df is already an empty DataFrame
 
-# Ensure df is defined, even if empty, to avoid NameError downstream
-if 'df' not in locals():
-    st.error("資料尚未載入。請上傳一個 CSV 檔案。")
-    df = pd.DataFrame() # Initialize df as an empty DataFrame
-    st.stop()
-
-
-anomaly_df = df # Continue to use anomaly_df
+anomaly_df = df # This will be an empty DataFrame if no file is successfully loaded
 
 # === 頁面標題 ===
 st.markdown("""
@@ -132,18 +110,23 @@ with st.sidebar.expander("📊 圖表選項", expanded=True): # 圖表與異常�
 
 
 # --- 根據時間區間過濾資料 ---
-try:
-    # 建立遮罩，過濾出選定時間區間的資料
-    mask = (df['record Time'] >= st.session_state.time_start) & (df['record Time'] <= st.session_state.time_end)
-    df_filtered = df.loc[mask].copy() # 套用遮罩並複製過濾後的資料
-except Exception as e: # 捕捉時間轉換或過濾錯誤
-    st.error(f"❌ 時間格式轉換或資料過濾時發生錯誤: {e}")
-    st.stop() # 若過濾失敗則停止執行
+df_filtered = pd.DataFrame() # Initialize df_filtered
+if not df.empty:
+    try:
+        # 建立遮罩，過濾出選定時間區間的資料
+        mask = (df['record Time'] >= st.session_state.time_start) & (df['record Time'] <= st.session_state.time_end)
+        df_filtered = df.loc[mask].copy() # 套用遮罩並複製過濾後的資料
+        if not df_filtered.empty:
+             st.success("✅ 圖表已生成。請滑鼠移動檢視原始資料詳情")
+        else:
+             st.warning("選定時間區間內無資料可顯示。請調整時間範圍或上傳不同資料。")
 
-st.success("✅ 圖表已生成。請滑鼠移動檢視原始資料詳情")
+    except Exception as e: # 捕捉時間轉換或過濾錯誤
+        st.error(f"❌ 時間格式轉換或資料過濾時發生錯誤: {e}")
+        st.stop() # 若過濾失敗則停止執行
 
-# 若使用者想看異常點但異常檢測檔案不存在則警告
-if show_anomaly and anomaly_df is None:
+    # 若使用者想看異常點但異常檢測檔案不存在則警告
+    if show_anomaly and anomaly_df is None: # anomaly_df is df, so this check might be redundant if df is not empty
     st.warning("⚠️ 異常檢測結果文件 (results/s1_anomaly_results.csv) 未找到或讀取失敗。異常點相關功能將不可用。")
 
 
@@ -167,9 +150,10 @@ if show_anomaly and anomaly_df is not None:
 
 # === 標準化數據趨勢圖繪製 ===
 # 此區段負責繪製所選標準化指標的趨勢圖
-if selected_metrics:
-    metric_colors = { # 定義各指標顏色
-        'current': 'rgba(0, 0, 255, 0.8)',      # 藍色
+if not df.empty and not df_filtered.empty:
+    if selected_metrics:
+        metric_colors = { # 定義各指標顏色
+            'current': 'rgba(0, 0, 255, 0.8)',      # 藍色
         'voltage': 'rgba(0, 128, 0, 0.8)',      # 綠色
         'resistance': 'rgba(255, 165, 0, 0.8)', # 橘色
         'temperature': 'rgba(128, 0, 128, 0.8)' # 紫色
@@ -274,12 +258,19 @@ if selected_metrics:
         )
     )
     st.plotly_chart(fig_scaled, use_container_width=True) # 顯示圖表
+elif uploaded_file is not None and df.empty:
+    # Error message was already shown during data loading for bad uploaded file
+    pass
+elif df.empty: # df is empty because no file was uploaded or default load failed
+    st.warning("📈 請在左方側邊欄上傳 CSV 資料檔案以生成「標準化數據趨勢圖」。")
+
 
 # === 原始數據圖表繪製 ===
 # 此區段負責繪製所選原始指標的圖表
-if raw_option != "none": # 若有選擇原始指標
-    # 若 metric_colors 尚未定義則定義
-    if 'metric_colors' not in locals():
+if not df.empty and not df_filtered.empty:
+    if raw_option != "none": # 若有選擇原始指標
+        # 若 metric_colors 尚未定義則定義
+        if 'metric_colors' not in locals():
         metric_colors = {
             'current': 'rgba(0, 0, 255, 0.8)',
             'voltage': 'rgba(0, 128, 0, 0.8)',
@@ -373,14 +364,29 @@ if raw_option != "none": # 若有選擇原始指標
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(255,255,255,0.5)') # 圖例樣式
     )
     st.plotly_chart(fig_raw, use_container_width=True) # 顯示圖表
+    # else:
+        # st.info("請從圖表選項中選擇一個原始指標以進行繪製。") # Optional: if you want a message when raw_option is "none"
+elif uploaded_file is not None and df.empty:
+    pass
+elif df.empty:
+    st.warning("📈 請在左方側邊欄上傳 CSV 資料檔案以生成「原始數據圖表」。")
 
 
 # --- 匯出異常資料按鈕 ---
 # 若有顯示圖表且顯示異常點且異常資料存在，則顯示下載按鈕
-if (selected_metrics or raw_option != "none") and show_anomaly and anomaly_df is not None and 'res_spike_anomaly' in df_filtered.columns:
+if not df.empty and not df_filtered.empty and (selected_metrics or raw_option != "none") and show_anomaly and 'res_spike_anomaly' in df_filtered.columns:
+    # Ensure anomaly_df (which is df) is not None, which is covered by df.empty check
     st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True) # 右對齊
     # 準備下載資料（過濾後的異常點）
-    csv_data = df_filtered[df_filtered['res_spike_anomaly'] == 1].to_csv(index=False).encode('utf-8-sig')
+    # Ensure 'res_spike_anomaly' column exists before trying to filter by it
+    if 'res_spike_anomaly' in df_filtered.columns:
+        export_df = df_filtered[df_filtered['res_spike_anomaly'] == 1]
+        if not export_df.empty:
+            csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+        else:
+            csv_data = pd.DataFrame().to_csv(index=False).encode('utf-8-sig') # Empty data if no anomalies
+    else:
+        csv_data = pd.DataFrame().to_csv(index=False).encode('utf-8-sig') # Empty data if column missing
     st.download_button(
         label="📤 匯出目前區間異常點資料", # 按鈕標籤
         data=csv_data,
@@ -389,13 +395,15 @@ if (selected_metrics or raw_option != "none") and show_anomaly and anomaly_df is
         key="download-below-plot"
     )
     st.markdown("</div>", unsafe_allow_html=True)
+# Not showing a warning for export button if df is empty, button just won't appear.
 
 
 # --- 整體異常統計 ---
 # 若有勾選顯示異常點且異常資料存在，則顯示整體異常統計
-if show_anomaly and anomaly_df is not None and 'res_spike_anomaly' in df.columns: # 檢查主資料表有異常欄位
+if not df.empty and show_anomaly and 'res_spike_anomaly' in df.columns: # df replaces anomaly_df check
     st.markdown("---") # 視覺分隔線
     # 再次計算整體異常統計或使用前面已計算的 percent_all
+    # Ensure df has 'res_spike_anomaly'
     if 'total_anomalies_all' not in locals() or 'total_all' not in locals() or \
        not ('res_spike_anomaly' in df.columns and hasattr(df, 'res_spike_anomaly')): # 確認欄位存在
         # 若前面變數不存在則重新計算
@@ -485,3 +493,7 @@ if show_anomaly and anomaly_df is not None and 'res_spike_anomaly' in df.columns
     )
 
     st.plotly_chart(fig_stats, use_container_width=True) # 顯示圖表
+elif uploaded_file is not None and df.empty:
+    pass
+elif df.empty:
+    st.warning("📈 請在左方側邊欄上傳 CSV 資料檔案以檢視「整體異常統計」。")
