@@ -15,17 +15,46 @@ st.set_page_config(
 
 
 # --- 資料載入與初始化 ---
-if csv_file_path:
-    data_loader = DataLoader(file_path=csv_file_path)
+if uploaded_file is not None:
+    # When a file is uploaded, DataLoader will receive the UploadedFile object.
+    # The DataLoader's get_data method will need to handle this.
+    # Pandas pd.read_csv can directly read from an UploadedFile object.
+    data_loader = DataLoader(source=uploaded_file) # Pass the uploaded_file object as 'source'
     df = data_loader.get_data()
     if df.empty:
-        st.error("資料載入失敗，請檢查檔案路徑或檔案內容。")
-        st.stop() # Stop execution if data loading fails
+        st.error("資料載入失敗或檔案為空。請檢查檔案內容。")
+        st.stop() # Stop execution if data loading fails or file is empty
 else:
-    st.error("請在側邊欄輸入 CSV 檔案路徑。")
-    st.stop() # Stop execution if no file path is provided
+    # Display a placeholder or instruction if no file is uploaded yet
+    # For example, load the default file or show a message
+    st.info("請在左方側邊欄上傳 CSV 檔案以開始分析。若無上傳，將嘗試載入預設資料。")
+    # Attempt to load a default file if no file is uploaded.
+    # This provides backward compatibility or a default view.
+    default_file_path = "results/s1_anomaly_results.csv"
+    try:
+        data_loader = DataLoader(source=default_file_path)
+        df = data_loader.get_data()
+        if df.empty:
+            st.warning(f"預設資料檔案 {default_file_path} 載入失敗或為空。")
+            # Optionally, you can display a more prominent error and stop
+            # st.error(f"預設資料檔案 {default_file_path} 載入失敗或為空。請上傳檔案。")
+            # st.stop()
+    except Exception as e: # Catch any error during default load
+         st.warning(f"載入預設資料 {default_file_path} 時發生錯誤: {e}。請上傳檔案。")
+         # As a fallback, create an empty DataFrame to prevent downstream errors
+         # or guide the user to upload a file.
+         df = pd.DataFrame() # Critical to have df defined
+         # If df must not be empty, then st.stop() after error.
+         # For now, allowing the app to proceed with empty df and show "no data" messages.
 
-anomaly_df = df # Continue to use anomaly_df as it might be used elsewhere, assuming it's the same data for now.
+# Ensure df is defined, even if empty, to avoid NameError downstream
+if 'df' not in locals():
+    st.error("資料尚未載入。請上傳一個 CSV 檔案。")
+    df = pd.DataFrame() # Initialize df as an empty DataFrame
+    st.stop()
+
+
+anomaly_df = df # Continue to use anomaly_df
 
 # === 頁面標題 ===
 st.markdown("""
@@ -34,10 +63,10 @@ st.markdown("""
 
 # --- 側邊欄 UI ---
 st.sidebar.markdown("---") # 視覺分隔線
-st.sidebar.markdown("### 📁 選擇資料檔案")
-csv_file_path = st.sidebar.text_input(
-    "輸入 CSV 檔案路徑:",
-    value="results/s1_anomaly_results.csv"
+st.sidebar.markdown("### 📁 上傳資料檔案")
+uploaded_file = st.sidebar.file_uploader(
+    "選擇 CSV 檔案:",
+    type=["csv"] # Restrict to CSV files
 )
 st.sidebar.markdown("---") # 視覺分隔線
 
