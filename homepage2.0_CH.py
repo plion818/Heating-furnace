@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objs as go
 import plotly.express as px # 匯入 Plotly Express
+from data_loader import DataLoader
 
 # === 頁面基礎設定 (必須是第一個 Streamlit 指令) ===
 st.set_page_config(
@@ -13,22 +14,18 @@ st.set_page_config(
 )
 
 
-# === 載入主要感測資料（直接從異常檢測結果） ===
-@st.cache_data
-def load_data():
-    """
-    直接從 'results/s1_anomaly_results.csv' 載入所有所需資料。
-    將 'record Time' 欄位轉為 datetime 物件。
-    回傳:
-        pd.DataFrame: 包含所有感測與異常資料的 DataFrame。
-    """
-    df = pd.read_csv("results/s1_anomaly_results.csv")
-    df['record Time'] = pd.to_datetime(df['record Time'])
-    return df
-
 # --- 資料載入與初始化 ---
-df = load_data()  # 直接載入所有資料
-anomaly_df = df  # 直接指向同一份資料，方便後續程式碼相容
+if csv_file_path:
+    data_loader = DataLoader(file_path=csv_file_path)
+    df = data_loader.get_data()
+    if df.empty:
+        st.error("資料載入失敗，請檢查檔案路徑或檔案內容。")
+        st.stop() # Stop execution if data loading fails
+else:
+    st.error("請在側邊欄輸入 CSV 檔案路徑。")
+    st.stop() # Stop execution if no file path is provided
+
+anomaly_df = df # Continue to use anomaly_df as it might be used elsewhere, assuming it's the same data for now.
 
 # === 頁面標題 ===
 st.markdown("""
@@ -36,6 +33,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 側邊欄 UI ---
+st.sidebar.markdown("---") # 視覺分隔線
+st.sidebar.markdown("### 📁 選擇資料檔案")
+csv_file_path = st.sidebar.text_input(
+    "輸入 CSV 檔案路徑:",
+    value="results/s1_anomaly_results.csv"
+)
 st.sidebar.markdown("---") # 視覺分隔線
 
 # 初始化 session state 的時間區間（如尚未設定）
