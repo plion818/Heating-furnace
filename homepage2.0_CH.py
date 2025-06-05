@@ -13,6 +13,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- 側邊欄 UI Elements for Data Loading ---
+# Define uploaded_file first so it's available for data loading logic
+st.sidebar.markdown("### 📁 上傳資料檔案") # This could be part of a larger sidebar section later
+uploaded_file = st.sidebar.file_uploader(
+    "選擇 CSV 檔案:",
+    type=["csv"]
+)
+st.sidebar.markdown("---") # 視覺分隔線 for separation before other sidebar items if any start here
 
 # --- 資料載入與初始化 ---
 if uploaded_file is not None:
@@ -62,12 +70,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 側邊欄 UI ---
-st.sidebar.markdown("---") # 視覺分隔線
-st.sidebar.markdown("### 📁 上傳資料檔案")
-uploaded_file = st.sidebar.file_uploader(
-    "選擇 CSV 檔案:",
-    type=["csv"] # Restrict to CSV files
-)
+# The file uploader is now above, other sidebar items start here.
+# Note: The "---" visual separator that was above "初始化 session state" is kept if it made sense.
+# Or, if the new "---" after file_uploader serves that purpose, the one here could be removed.
+# For now, let's assume the existing structure of separators for other elements is fine.
 st.sidebar.markdown("---") # 視覺分隔線
 
 # 初始化 session state 的時間區間（如尚未設定）
